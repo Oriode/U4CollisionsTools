@@ -38,7 +38,7 @@ bl_info = {
 	"description": "Tools for easy U4 Collisions Box creation in Blender.",
 	"warning": "",
 	"wiki_url": "",
-	"tracker_url": "https://github.com/Oriode/U4CollisionsTools/",
+	"tracker_url": "",
 	"category": "Mesh",
 }
 
@@ -144,6 +144,24 @@ class U4CollisionsTools( ):
 		return obj.modifiers.new( modifierName, modifierType)
 
 
+	#	@brief Retrieve the 3D cursor position
+	#	@return Vector of position of the 3D cursor
+	#	@see https://blender.stackexchange.com/questions/39291/get-current-scene-on-blender-2-74-using-python
+	@staticmethod
+	def get3DCursorPos():
+		currentScene = bpy.context.scene
+		currentSpace = bpy.context.space_data
+		return ( currentSpace if currentSpace and currentSpace.type == 'VIEW_3D' else currentScene ).cursor_location
+
+	#	@brief Set the 3D cursor position
+	#	@param pos Vector of position of the 3D cursor
+	#	@see https://blender.stackexchange.com/questions/39291/get-current-scene-on-blender-2-74-using-python
+	@staticmethod
+	def set3DCursorPos( pos ):
+		currentScene = bpy.context.scene
+		currentSpace = bpy.context.space_data
+		( currentSpace if currentSpace and currentSpace.type == 'VIEW_3D' else currentScene ).cursor_location = pos
+
 	#	@brief Apply a modifier to it's associated object
 	#	@param obj Object
 	#	@param mod Modifier to be aplied
@@ -168,7 +186,7 @@ class U4CollisionsTools( ):
 		
 
 		# Save the current 3D Cursor position
-		init3DCursorPosition = Vector( bpy.context.scene.cursor_location )
+		init3DCursorPosition = Vector( self.get3DCursorPos() )
 		collisionsBoxesList = []
 
 		for obj in objList:
@@ -209,7 +227,7 @@ class U4CollisionsTools( ):
 			# Set the 3D cursor to the origin of our object
 			self.setActive( objCopy )
 			bpy.ops.view3d.snap_cursor_to_selected()
-			initObjPositionWS = Vector( bpy.context.scene.cursor_location )
+			initObjPositionWS = Vector( self.get3DCursorPos() )
 
 			# Set the origin at the center of mass (Because it's the easiest way to retrieve the center of mass of a mesh)
 			bpy.ops.object.origin_set( type = 'ORIGIN_GEOMETRY', center = 'BOUNDS' )
@@ -221,7 +239,7 @@ class U4CollisionsTools( ):
 
 			# We will use the 3D Cursor for placing the new box at the right position (Copying the position won't work in case of parenting)
 			bpy.ops.view3d.snap_cursor_to_selected()
-			relativePos = bpy.context.scene.cursor_location - initObjPositionWS
+			relativePos = self.get3DCursorPos() - initObjPositionWS
 	
 			
 
@@ -295,7 +313,7 @@ class U4CollisionsTools( ):
 			bpy.ops.object.transform_apply( location = False, rotation = False, scale = True )
 
 			# Set the origin of the Collision Box same as 'obj'
-			bpy.context.scene.cursor_location = Vector( ( -relativePos.x / initObjScaleWS.x, -relativePos.y / initObjScaleWS.y, -relativePos.z / initObjScaleWS.z ) )
+			self.set3DCursorPos( Vector( ( -relativePos.x / initObjScaleWS.x, -relativePos.y / initObjScaleWS.y, -relativePos.z / initObjScaleWS.z ) ) )
 			bpy.ops.object.origin_set( type = 'ORIGIN_CURSOR' )
 
 			# Now put the collision box as a child of our object
@@ -372,7 +390,7 @@ class U4CollisionsTools( ):
 				self.setActive( objCopy )
 				bpy.ops.object.delete( use_global = False )
 
-		bpy.context.scene.cursor_location = init3DCursorPosition
+		self.set3DCursorPos( init3DCursorPosition )
 
 		return collisionsBoxesList
 
@@ -611,7 +629,7 @@ class U4CollisionsTools_Panel(bpy.types.Panel):
 
 	def draw(self, context):
 		layout = self.layout
-	  layout.operator(U4CollisionsTools_CreateCollisionBox.bl_idname, icon = 'VIEW3D' )
+		layout.operator(U4CollisionsTools_CreateCollisionBox.bl_idname, icon = 'VIEW3D' )
 		layout.operator(U4CollisionsTools_CreateCollisionSimpleConvex.bl_idname, icon = 'VIEW3D' )
 		layout.operator(U4CollisionsTools_CreateCollisionConvex.bl_idname, icon = 'VIEW3D' )
 		layout.operator(U4CollisionsTools_CreateCollisionSpheres.bl_idname, icon = 'MESH_UVSPHERE' )
