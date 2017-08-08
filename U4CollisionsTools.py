@@ -1,5 +1,5 @@
 #
-#    Copyright (c) 2014
+#    Copyright (c) 2017
 #
 #    All rights reserved.
 #    Redistribution and use in source and binary forms, with or without
@@ -32,7 +32,7 @@
 bl_info = {
 	"name": "U4 Collisions Tools",
 	"author": "Oriode",
-	"version": (1,  0),
+	"version": (1,  1),
 	"blender": (2, 78, 0),
 	"location": "View3D > Tools > U4 Collisions Tools",
 	"description": "Tools for easy U4 Collisions Box creation in Blender.",
@@ -60,6 +60,8 @@ import copy
 #	@brief Main Class
 class U4CollisionsTools( ):
 	
+	m_isCollisionRegex = re.compile('U(BX|CX|CP|SP)_')
+
 	class CollisionType( Enum ):
 		BOX = 0
 		SPHERE = 1
@@ -91,12 +93,8 @@ class U4CollisionsTools( ):
 
 
 	@staticmethod
-	def getUBX( obList ):
-		return [obj for obj in obList if fnmatch.fnmatchcase(obj.name, "UBX_*")]
-
-	@staticmethod
 	def getCollisions( obList ):
-		return [obj for obj in obList if fnmatch.fnmatchcase(obj.name, "UBX_*") or fnmatch.fnmatchcase(obj.name, "UCX_*") or fnmatch.fnmatchcase(obj.name, "USP_*") or fnmatch.fnmatchcase(obj.name, "UCP_*")]
+		return [obj for obj in obList if U4CollisionsTools.isCollisionBox( obj ) ]
 
 
 	@staticmethod
@@ -110,7 +108,7 @@ class U4CollisionsTools( ):
 
 	@staticmethod
 	def isCollisionBox( obj ):
-		return re.match('UBX_', obj.name) or re.match('UCX_', obj.name) or re.match('UCP_', obj.name) or re.match('USP_', obj.name)
+		return ( U4CollisionsTools.m_isCollisionRegex.match( obj.name ) != None )
 
 
 	def deleteCollisionsBox( self, obj ):
@@ -121,7 +119,7 @@ class U4CollisionsTools( ):
 
 	@staticmethod
 	def setActive( obj ):
-		U4CollisionsTools.deselectAll()														# Deselect everything
+		U4CollisionsTools.deselectAll()											# Deselect everything
 		obj.select = True														# Set 'obj' selected
 		bpy.context.scene.objects.active = obj									# Set 'obj' as the active object
 
@@ -170,6 +168,32 @@ class U4CollisionsTools( ):
 		self.setActive( obj )
 		bpy.ops.object.modifier_apply( apply_as = 'DATA', modifier = mod.name )
 
+
+
+	@staticmethod
+	def setVisibleLayer( num ):
+		for i in range(20):
+			if i == num:
+				bpy.context.space_data.layers[i] = True
+			else:
+				bpy.context.space_data.layers[i] = False
+
+	@staticmethod
+	def setVisibleLayers( boolList ):
+		bpy.context.space_data.layers = boolList
+
+	@staticmethod 
+	def getVisibleLayers():
+		return bpy.context.space_data.layers
+
+	@staticmethod
+	def isInVisibleLayer( obj ):
+		visibleLayers = U4CollisionsTools.getVisibleLayers()
+		for i in range(20):
+			if obj.layers[i] == True and visibleLayers[i] == True:
+				return True
+		return False
+
 	#	@brief Create collisions boxes using the U4 template from a specific object list
 	#	@param objList List of objects to create collisions boxes
 	#	@param collisionType type of the Collision primitive to create
@@ -203,9 +227,22 @@ class U4CollisionsTools( ):
 			objCopy = bpy.context.active_object									# Save the reference of the freshly created copy.
 			objCopy.name = 'U4CT.tmp'
 
+			# Ensure everything is enabled
+			objCopy.lock_location = ( False, False, False )
+			objCopy.lock_scale = ( False, False, False )
+			objCopy.lock_rotation = ( False, False, False )
+
+			# Remove constraints
+			for constraint in objCopy.constraints:
+				objCopy.constraints.remove( constraint )
+
+
 			# Because we wants to work in World Space, clear parenting
 			self.setActive( objCopy )
 			bpy.ops.object.parent_clear( type = 'CLEAR_KEEP_TRANSFORM' )
+
+
+			objCopy.rotation_euler = ( 0.0, 0.0, 0.0 )
 			
 			# Disable Mirror and Array for a correct Collision Box
 			for modifier in objCopy.modifiers:
@@ -240,8 +277,6 @@ class U4CollisionsTools( ):
 			# We will use the 3D Cursor for placing the new box at the right position (Copying the position won't work in case of parenting)
 			bpy.ops.view3d.snap_cursor_to_selected()
 			relativePos = self.get3DCursorPos() - initObjPositionWS
-	
-			
 
 			if collisionType == self.CollisionType.BOX:
 				bpy.ops.mesh.primitive_cube_add()
@@ -287,6 +322,9 @@ class U4CollisionsTools( ):
 				bpy.ops.object.modifier_apply( apply_as = 'DATA', modifier = decimateModifier.name )
 
 			newCollisionBox = bpy.context.active_object							# Save the reference of the freshly created box.
+
+			# Set the visibility of the new collision box same as obj
+			newCollisionBox.layers = obj.layers
 			
 			# Set our new mesh as active
 			self.setActive( newCollisionBox )
@@ -321,11 +359,9 @@ class U4CollisionsTools( ):
 			newCollisionBox.select = True
 			bpy.ops.object.parent_no_inverse_set()					# Parent it WITHOUT any 'parent inverse' matrix
 
-			# Transfer the modifier from 'obj' to the new Collision Box
-			self.deselectAll()
+			# Transfer the modifier from 'obj' to the new Collision Box			
+			self.setActive( obj )
 			newCollisionBox.select = True
-			obj.select = True
-			bpy.context.scene.objects.active = obj
 			bpy.ops.object.make_links_data( type = 'MODIFIERS' )
 
 			self.setActive( newCollisionBox )
