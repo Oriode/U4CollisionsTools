@@ -81,6 +81,12 @@ class U4CollisionsTools( ):
 	def deselectAll():
 		bpy.ops.object.select_all( action = 'DESELECT' )
 
+	@staticmethod
+	def selectObjList( objList ):
+		U4CollisionsTools.deselectAll()
+		for obj in objList:
+			obj.select = True
+
 	@staticmethod	
 	def getChildren( ob ):
 		def isParent(ob, c):
@@ -197,6 +203,13 @@ class U4CollisionsTools( ):
 				return True
 		return False
 
+
+	@staticmethod
+	def deleteDegenerate():
+		objList = [ obj for obj in bpy.data.objects if obj.type == 'MESH' and ( obj.data == None or len( obj.data.vertices ) == 0 ) ]
+		U4CollisionsTools.selectObjList( objList )
+		bpy.ops.object.delete()
+
 	#	@brief Create collisions boxes using the U4 template from a specific object list
 	#	@param objList List of objects to create collisions boxes
 	#	@param collisionType type of the Collision primitive to create
@@ -211,7 +224,7 @@ class U4CollisionsTools( ):
 			return []
 		
 		# Ensure we can handle every objects selected
-		objList = [ obj for obj in objList if self.isCollisionBox( obj ) == False and obj.hide_select == False and obj.type == 'MESH' and self.isInVisibleLayer( obj ) ]
+		objList = [ obj for obj in objList if self.isCollisionBox( obj ) == False and obj.hide_select == False and obj.hide == False and obj.type == 'MESH' and self.isInVisibleLayer( obj ) ]
 
 		# If we have no object, work completed
 		if len( objList ) == 0:
@@ -233,6 +246,11 @@ class U4CollisionsTools( ):
 		bpy.ops.object.join()
 		objCopy = self.getActive()											# Save the reference of the freshly created copy.
 		objCopy.name = 'U4CT.tmp'
+		bpy.ops.object.duplicate( linked = False, mode = 'TRANSLATION' )
+		objCopy2 = self.getActive()											# Save the reference of the freshly created copy.
+		objCopy2.name = 'U4CT.tmp2'
+
+
 
 		# Delete all the already existing Collisions Boxes for 'obj'
 		self.deleteCollisionsBox( obj )
@@ -374,14 +392,7 @@ class U4CollisionsTools( ):
 		newCollisionBox.select = True
 		bpy.ops.object.make_links_data( type = 'MODIFIERS' )
 
-		self.setActive( newCollisionBox )
-		# If we are creating Simple Convex, apply a scrinkwarp
-		if collisionType == self.CollisionType.SIMPLECONVEX:
-			# Add a SHRINKWRAP modifier to the collision box
-			shrinkWarpModifier = self.addModifier( newCollisionBox, 'SHRINKWRAP', 'U4CT_SHRINKWRAP' )
-			shrinkWarpModifier.target = objCopy
-			shrinkWarpModifier.wrap_method = 'NEAREST_VERTEX'
-			bpy.ops.object.modifier_apply( apply_as = 'DATA', modifier = shrinkWarpModifier.name )
+
 		
 		
 		# Apply the Array and Mirror modifier if nessessary
@@ -416,8 +427,22 @@ class U4CollisionsTools( ):
 			looseObj.data.name = looseObj.name
 			collisionsBoxesList.append(looseObj)										# Append the loose part to the Collisions Boxes list
 
+
+			# If we are creating Simple Convex, apply a scrinkwarp
+			if collisionType == self.CollisionType.SIMPLECONVEX:
+				self.report({'INFO'}, 'TEST')
+
+				self.setActive( looseObj )
+				# Add a SHRINKWRAP modifier to the collision box
+				shrinkWarpModifier = self.addModifier( looseObj, 'SHRINKWRAP', 'U4CT_SHRINKWRAP' )
+				shrinkWarpModifier.target = objCopy2
+				shrinkWarpModifier.wrap_method = 'NEAREST_VERTEX'
+				bpy.ops.object.modifier_apply( apply_as = 'DATA', modifier = shrinkWarpModifier.name )
+
+		self.selectObjList( collisionsBoxesList )
+
 		# Link the object data of all the looses parts
-		if collisionType == self.CollisionType.SPHERE or collisionType == self.CollisionType.BOX:
+		if collisionType == self.CollisionType.SPHERE:
 			bpy.context.scene.objects.active = newCollisionBox
 			bpy.ops.object.make_links_data(type='OBDATA')
 
@@ -435,6 +460,9 @@ class U4CollisionsTools( ):
 		if collisionType != self.CollisionType.CONVEX:
 			self.setActive( objCopy )
 			bpy.ops.object.delete( use_global = False )
+
+		self.setActive( objCopy2 )
+		bpy.ops.object.delete( use_global = False )
 
 		self.set3DCursorPos( init3DCursorPosition )
 
@@ -467,6 +495,9 @@ class U4CollisionsTools_SelectCollisionsBoxes(bpy.types.Operator, U4CollisionsTo
 			self.deselectAll()
 
 		for obj in selectedObjList:
+			if self.isCollisionBox( obj ):
+				obj.select = True
+				continue
 			objChildList = self.getChildren( obj )
 			objCollisionsList = self.getCollisions( objChildList )
 
