@@ -32,7 +32,7 @@
 bl_info = {
 	"name": "U4 Collisions Tools",
 	"author": "Oriode",
-	"version": (1,  1),
+	"version": (1,  2),
 	"blender": (2, 78, 0),
 	"location": "View3D > Tools > U4 Collisions Tools",
 	"description": "Tools for easy U4 Collisions Box creation in Blender.",
@@ -123,6 +123,9 @@ class U4CollisionsTools( ):
 		obj.select = True														# Set 'obj' selected
 		bpy.context.scene.objects.active = obj									# Set 'obj' as the active object
 
+	@staticmethod
+	def getActive():
+		return bpy.context.scene.objects.active
 
 	#	@brief Get the selected objects list
 	#	@return List of selected objects
@@ -203,228 +206,235 @@ class U4CollisionsTools( ):
 	#	@param convexComplexity Complexity of resulting convex shape (only used if collisionType == CONVEX)
 	#	@return List of Collisions Boxes freshly created
 	def createCollisionsBoxes( self, objList, collisionType, multipleOnArray = True, multipleOnMirror = True, scaleMult = 1.0, convexComplexity = 10.0 ):
-
 		# Check if we have a type we can handle
 		if collisionType != self.CollisionType.BOX and collisionType != self.CollisionType.SPHERE and collisionType != self.CollisionType.SIMPLECONVEX and collisionType != self.CollisionType.CONVEX:
 			return []
 		
+		# Ensure we can handle every objects selected
+		objList = [ obj for obj in objList if self.isCollisionBox( obj ) == False and obj.hide_select == False and obj.type == 'MESH' and self.isInVisibleLayer( obj ) ]
+
+		# If we have no object, work completed
+		if len( objList ) == 0:
+			return []
+
+		# if we have no active
+		if self.getActive() == None:
+			self.report({'ERROR'}, 'No Active object.')
+			return []
+
+		obj = self.getActive()
 
 		# Save the current 3D Cursor position
 		init3DCursorPosition = Vector( self.get3DCursorPos() )
 		collisionsBoxesList = []
 
-		for obj in objList:
-			# If we have selected some Collision Box, skip them (we don't want to add Collision Box to Collisions Boxes !)
-			if self.isCollisionBox( obj ):
-				continue
+		# Duplicate the object to work on a copy
+		bpy.ops.object.duplicate( linked = False, mode = 'TRANSLATION' )
+		bpy.ops.object.join()
+		objCopy = self.getActive()											# Save the reference of the freshly created copy.
+		objCopy.name = 'U4CT.tmp'
 
-			# Delete all the already existing Collisions Boxes for 'obj'
-			self.deleteCollisionsBox( obj )
+		# Delete all the already existing Collisions Boxes for 'obj'
+		self.deleteCollisionsBox( obj )
 
-			# Duplicate the object to work on a copy
-			self.setActive( obj )
-			bpy.ops.object.duplicate( linked = False, mode = 'TRANSLATION' )
-			objCopy = bpy.context.active_object									# Save the reference of the freshly created copy.
-			objCopy.name = 'U4CT.tmp'
+		# Ensure everything is enabled
+		objCopy.lock_location = ( False, False, False )
+		objCopy.lock_scale = ( False, False, False )
+		objCopy.lock_rotation = ( False, False, False )
 
-			# Ensure everything is enabled
-			objCopy.lock_location = ( False, False, False )
-			objCopy.lock_scale = ( False, False, False )
-			objCopy.lock_rotation = ( False, False, False )
-
-			# Remove constraints
-			for constraint in objCopy.constraints:
-				objCopy.constraints.remove( constraint )
+		# Remove constraints
+		for constraint in objCopy.constraints:
+			objCopy.constraints.remove( constraint )
 
 
-			# Because we wants to work in World Space, clear parenting
-			self.setActive( objCopy )
-			bpy.ops.object.parent_clear( type = 'CLEAR_KEEP_TRANSFORM' )
+		# Because we wants to work in World Space, clear parenting
+		self.setActive( objCopy )
+		bpy.ops.object.parent_clear( type = 'CLEAR_KEEP_TRANSFORM' )
 
 
-			objCopy.rotation_euler = ( 0.0, 0.0, 0.0 )
-			
-			# Disable Mirror and Array for a correct Collision Box
-			for modifier in objCopy.modifiers:
-				if modifier.type == 'ARRAY':
-					if multipleOnArray:
-						modifier.show_viewport = False
-						modifier.use_merge_vertices = False
-					else:
-						bpy.ops.object.modifier_apply( apply_as = 'DATA', modifier = modifier.name )
-				elif modifier.type == 'MIRROR':
-					if multipleOnMirror:
-						modifier.show_viewport = False
-						modifier.use_mirror_merge = False
-					else:
-						bpy.ops.object.modifier_apply( apply_as = 'DATA', modifier = modifier.name )
+		objCopy.rotation_euler = ( 0.0, 0.0, 0.0 )
+		
+		# Disable Mirror and Array for a correct Collision Box
+		for modifier in objCopy.modifiers:
+			if modifier.type == 'ARRAY':
+				if multipleOnArray:
+					modifier.show_viewport = False
+					modifier.use_merge_vertices = False
 				else:
 					bpy.ops.object.modifier_apply( apply_as = 'DATA', modifier = modifier.name )
+			elif modifier.type == 'MIRROR':
+				if multipleOnMirror:
+					modifier.show_viewport = False
+					modifier.use_mirror_merge = False
+				else:
+					bpy.ops.object.modifier_apply( apply_as = 'DATA', modifier = modifier.name )
+			else:
+				bpy.ops.object.modifier_apply( apply_as = 'DATA', modifier = modifier.name )
 
-			# Set the 3D cursor to the origin of our object
-			self.setActive( objCopy )
-			bpy.ops.view3d.snap_cursor_to_selected()
-			initObjPositionWS = Vector( self.get3DCursorPos() )
+		# Set the 3D cursor to the origin of our object
+		self.setActive( objCopy )
+		bpy.ops.view3d.snap_cursor_to_selected()
+		initObjPositionWS = Vector( self.get3DCursorPos() )
 
-			# Set the origin at the center of mass (Because it's the easiest way to retrieve the center of mass of a mesh)
-			bpy.ops.object.origin_set( type = 'ORIGIN_GEOMETRY', center = 'BOUNDS' )
+		# Set the origin at the center of mass (Because it's the easiest way to retrieve the center of mass of a mesh)
+		bpy.ops.object.origin_set( type = 'ORIGIN_GEOMETRY', center = 'BOUNDS' )
 
-			bpy.context.scene.update()										# Update the context to recompute the dimensions
-			initObjScaleWS = Vector( objCopy.scale )
+		bpy.context.scene.update()										# Update the context to recompute the dimensions
+		initObjScaleWS = Vector( objCopy.scale )
 
-			
+		
 
-			# We will use the 3D Cursor for placing the new box at the right position (Copying the position won't work in case of parenting)
-			bpy.ops.view3d.snap_cursor_to_selected()
-			relativePos = self.get3DCursorPos() - initObjPositionWS
+		# We will use the 3D Cursor for placing the new box at the right position (Copying the position won't work in case of parenting)
+		bpy.ops.view3d.snap_cursor_to_selected()
+		relativePos = self.get3DCursorPos() - initObjPositionWS
 
-			if collisionType == self.CollisionType.BOX:
-				bpy.ops.mesh.primitive_cube_add()
-			elif collisionType == self.CollisionType.SPHERE:
-				# Apply scale transformation on objCopy because we will use the mesh to compute the bounding sphere
-				bpy.ops.object.transform_apply( location = False, rotation = False, scale = True )
-
-				newRadius = 0.0
-				for vertex in objCopy.data.vertices:
-					v = vertex.co
-					#v[0] *= initObjScaleWS.x
-					#v[1] *= initObjScaleWS.y
-					#v[2] *= initObjScaleWS.z
-					newRadius = max( ( newRadius, math.sqrt( ( v[0] * v[0] ) + ( v[1] * v[1] ) + ( v[2] * v[2] ) ) ) )				
-				bpy.ops.mesh.primitive_uv_sphere_add( segments = 16, ring_count = 8, size = newRadius )
-			elif collisionType == self.CollisionType.SIMPLECONVEX:
-				bpy.ops.mesh.primitive_cube_add()
-			elif collisionType == self.CollisionType.CONVEX:
-				# Here we gonna use the objCopy (He is already active)
-				bpy.ops.object.mode_set( mode = 'EDIT' )
-				bpy.ops.mesh.select_all( action = 'SELECT' )
-				bpy.ops.mesh.convex_hull(
-					delete_unused = True, 
-					use_existing_faces = True, 
-					make_holes = False, 
-					join_triangles = True, 
-					face_threshold = 3.14, 
-					shape_threshold = 3.14, 
-					uvs = False, 
-					vcols = False, 
-					seam = False, 
-					sharp = False,
-					materials = False )
-				bpy.ops.mesh.select_all( action = 'SELECT' )
-				bpy.ops.mesh.quads_convert_to_tris()				# Triangulate the shape for an exact number of triangles
-				bpy.ops.object.mode_set( mode = 'OBJECT' )
-				
-				# Now lets create an decimate modifier for having a specified number of triangle per volume
-				area = objCopy.dimensions.x * objCopy.dimensions.y * objCopy.dimensions.z
-				numTriangles = len( objCopy.data.polygons )
-				decimateModifier = self.addModifier( objCopy, 'DECIMATE', 'U4CT_Decimate' )
-				decimateModifier.ratio = max( ( convexComplexity / ( numTriangles / area ), 1.0 / ( numTriangles / 12 ) ) )
-				bpy.ops.object.modifier_apply( apply_as = 'DATA', modifier = decimateModifier.name )
-
-			newCollisionBox = bpy.context.active_object							# Save the reference of the freshly created box.
-
-			# Set the visibility of the new collision box same as obj
-			newCollisionBox.layers = obj.layers
-			
-			# Set our new mesh as active
-			self.setActive( newCollisionBox )
-
-			if collisionType != self.CollisionType.SPHERE:
-				objCopy.scale = ( 1.0, 1.0, 1.0 )								# Because of the Array/Mirror modifier, we will have to work with the same scale
-				bpy.context.scene.update()										# Update the context to recompute the dimensions
-				newCollisionBox.dimensions = objCopy.dimensions					# Set the scale of the Collision Box (will be applied)
-
-			# Set the location at [0:0:0] because we will set it as a child of our object
-			newCollisionBox.location = ( 0.0, 0.0, 0.0 )
-			newCollisionBox.name = self.getU4Prefix( collisionType ) + obj.name + '.000'				# Set the name correctly using the Unreal Engine 4 documentation
-			newCollisionBox.draw_type = 'WIRE'															# Set the Draw Type to WIRE
-
-			# Disable Visibility in Cycles
-			newCollisionBox.cycles_visibility.camera = False
-			newCollisionBox.cycles_visibility.transmission = False
-			newCollisionBox.cycles_visibility.diffuse = False
-			newCollisionBox.cycles_visibility.scatter = False
-			newCollisionBox.cycles_visibility.glossy = False
-			newCollisionBox.cycles_visibility.shadow = False
-
-			# Apply the scale on the new bounding box (for the array modifier)
+		if collisionType == self.CollisionType.BOX:
+			bpy.ops.mesh.primitive_cube_add()
+		elif collisionType == self.CollisionType.SPHERE:
+			# Apply scale transformation on objCopy because we will use the mesh to compute the bounding sphere
 			bpy.ops.object.transform_apply( location = False, rotation = False, scale = True )
 
-			# Set the origin of the Collision Box same as 'obj'
-			self.set3DCursorPos( Vector( ( -relativePos.x / initObjScaleWS.x, -relativePos.y / initObjScaleWS.y, -relativePos.z / initObjScaleWS.z ) ) )
-			bpy.ops.object.origin_set( type = 'ORIGIN_CURSOR' )
-
-			# Now put the collision box as a child of our object
-			self.setActive( obj )
-			newCollisionBox.select = True
-			bpy.ops.object.parent_no_inverse_set()					# Parent it WITHOUT any 'parent inverse' matrix
-
-			# Transfer the modifier from 'obj' to the new Collision Box			
-			self.setActive( obj )
-			newCollisionBox.select = True
-			bpy.ops.object.make_links_data( type = 'MODIFIERS' )
-
-			self.setActive( newCollisionBox )
-			# If we are creating Simple Convex, apply a scrinkwarp
-			if collisionType == self.CollisionType.SIMPLECONVEX:
-				# Add a SHRINKWRAP modifier to the collision box
-				shrinkWarpModifier = self.addModifier( newCollisionBox, 'SHRINKWRAP', 'U4CT_SHRINKWRAP' )
-				shrinkWarpModifier.target = obj
-				shrinkWarpModifier.wrap_method = 'NEAREST_VERTEX'
-				bpy.ops.object.modifier_apply( apply_as = 'DATA', modifier = shrinkWarpModifier.name )
-			
-			
-			# Apply the Array and Mirror modifier if nessessary
-			self.setActive( newCollisionBox )
-			if multipleOnArray:
-				for modifier in newCollisionBox.modifiers:
-					if modifier.type == 'ARRAY' and modifier.show_viewport == True:
-						bpy.ops.object.modifier_apply( apply_as = 'DATA', modifier = modifier.name )
-						
-			if multipleOnMirror:
-				for modifier in newCollisionBox.modifiers:
-					if modifier.type == 'MIRROR' and modifier.show_viewport == True:
-						modifier.use_mirror_merge = False
-						bpy.ops.object.modifier_apply( apply_as = 'DATA', modifier = modifier.name )
-			for modifier in newCollisionBox.modifiers:
-				bpy.ops.object.modifier_remove( modifier = modifier.name )
-						
-			# Now split all the loose parts and rename them correctly
+			newRadius = 0.0
+			for vertex in objCopy.data.vertices:
+				v = vertex.co
+				#v[0] *= initObjScaleWS.x
+				#v[1] *= initObjScaleWS.y
+				#v[2] *= initObjScaleWS.z
+				newRadius = max( ( newRadius, math.sqrt( ( v[0] * v[0] ) + ( v[1] * v[1] ) + ( v[2] * v[2] ) ) ) )				
+			bpy.ops.mesh.primitive_uv_sphere_add( segments = 16, ring_count = 8, size = newRadius )
+		elif collisionType == self.CollisionType.SIMPLECONVEX:
+			bpy.ops.mesh.primitive_cube_add()
+		elif collisionType == self.CollisionType.CONVEX:
+			# Here we gonna use the objCopy (He is already active)
 			bpy.ops.object.mode_set( mode = 'EDIT' )
-			bpy.ops.mesh.separate( type = 'LOOSE' )
+			bpy.ops.mesh.select_all( action = 'SELECT' )
+			bpy.ops.mesh.convex_hull(
+				delete_unused = True, 
+				use_existing_faces = True, 
+				make_holes = False, 
+				join_triangles = True, 
+				face_threshold = 3.14, 
+				shape_threshold = 3.14, 
+				uvs = False, 
+				vcols = False, 
+				seam = False, 
+				sharp = False,
+				materials = False )
+			bpy.ops.mesh.select_all( action = 'SELECT' )
+			bpy.ops.mesh.quads_convert_to_tris()				# Triangulate the shape for an exact number of triangles
 			bpy.ops.object.mode_set( mode = 'OBJECT' )
 			
-			def replaceDot( matchobj ):
-				return matchobj.group(0).replace('.', '_')
+			# Now lets create an decimate modifier for having a specified number of triangle per volume
+			area = objCopy.dimensions.x * objCopy.dimensions.y * objCopy.dimensions.z
+			numTriangles = len( objCopy.data.polygons )
+			decimateModifier = self.addModifier( objCopy, 'DECIMATE', 'U4CT_Decimate' )
+			decimateModifier.ratio = max( ( convexComplexity / ( numTriangles / area ), 1.0 / ( numTriangles / 12 ) ) )
+			bpy.ops.object.modifier_apply( apply_as = 'DATA', modifier = decimateModifier.name )
 
-			# All the looses parts are selected, Now set the origin to the center of mass
-			bpy.ops.object.origin_set( type = 'ORIGIN_GEOMETRY', center = 'BOUNDS' )
+		newCollisionBox = bpy.context.active_object							# Save the reference of the freshly created box.
 
-			loosePartsObjects = bpy.context.selected_objects
+		# Set the visibility of the new collision box same as obj
+		newCollisionBox.layers = obj.layers
+		
+		# Set our new mesh as active
+		self.setActive( newCollisionBox )
+
+		if collisionType != self.CollisionType.SPHERE:
+			objCopy.scale = ( 1.0, 1.0, 1.0 )								# Because of the Array/Mirror modifier, we will have to work with the same scale
+			bpy.context.scene.update()										# Update the context to recompute the dimensions
+			newCollisionBox.dimensions = objCopy.dimensions					# Set the scale of the Collision Box (will be applied)
+
+		# Set the location at [0:0:0] because we will set it as a child of our object
+		newCollisionBox.location = ( 0.0, 0.0, 0.0 )
+		newCollisionBox.name = self.getU4Prefix( collisionType ) + obj.name + '.000'				# Set the name correctly using the Unreal Engine 4 documentation
+		newCollisionBox.draw_type = 'WIRE'															# Set the Draw Type to WIRE
+
+		# Disable Visibility in Cycles
+		newCollisionBox.cycles_visibility.camera = False
+		newCollisionBox.cycles_visibility.transmission = False
+		newCollisionBox.cycles_visibility.diffuse = False
+		newCollisionBox.cycles_visibility.scatter = False
+		newCollisionBox.cycles_visibility.glossy = False
+		newCollisionBox.cycles_visibility.shadow = False
+
+		# Apply the scale on the new bounding box (for the array modifier)
+		bpy.ops.object.transform_apply( location = False, rotation = False, scale = True )
+
+		# Set the origin of the Collision Box same as 'obj'
+		self.set3DCursorPos( Vector( ( -relativePos.x / initObjScaleWS.x, -relativePos.y / initObjScaleWS.y, -relativePos.z / initObjScaleWS.z ) ) )
+		bpy.ops.object.origin_set( type = 'ORIGIN_CURSOR' )
+
+		# Now put the collision box as a child of our object
+		self.setActive( obj )
+		newCollisionBox.select = True
+		bpy.ops.object.parent_no_inverse_set()					# Parent it WITHOUT any 'parent inverse' matrix
+
+		# Transfer the modifier from 'obj' to the new Collision Box			
+		self.setActive( obj )
+		newCollisionBox.select = True
+		bpy.ops.object.make_links_data( type = 'MODIFIERS' )
+
+		self.setActive( newCollisionBox )
+		# If we are creating Simple Convex, apply a scrinkwarp
+		if collisionType == self.CollisionType.SIMPLECONVEX:
+			# Add a SHRINKWRAP modifier to the collision box
+			shrinkWarpModifier = self.addModifier( newCollisionBox, 'SHRINKWRAP', 'U4CT_SHRINKWRAP' )
+			shrinkWarpModifier.target = objCopy
+			shrinkWarpModifier.wrap_method = 'NEAREST_VERTEX'
+			bpy.ops.object.modifier_apply( apply_as = 'DATA', modifier = shrinkWarpModifier.name )
+		
+		
+		# Apply the Array and Mirror modifier if nessessary
+		self.setActive( newCollisionBox )
+		if multipleOnArray:
+			for modifier in newCollisionBox.modifiers:
+				if modifier.type == 'ARRAY' and modifier.show_viewport == True:
+					bpy.ops.object.modifier_apply( apply_as = 'DATA', modifier = modifier.name )
+					
+		if multipleOnMirror:
+			for modifier in newCollisionBox.modifiers:
+				if modifier.type == 'MIRROR' and modifier.show_viewport == True:
+					modifier.use_mirror_merge = False
+					bpy.ops.object.modifier_apply( apply_as = 'DATA', modifier = modifier.name )
+		for modifier in newCollisionBox.modifiers:
+			bpy.ops.object.modifier_remove( modifier = modifier.name )
+					
+		# Now split all the loose parts and rename them correctly
+		bpy.ops.object.mode_set( mode = 'EDIT' )
+		bpy.ops.mesh.separate( type = 'LOOSE' )
+		bpy.ops.object.mode_set( mode = 'OBJECT' )
+		
+		def replaceDot( matchobj ):
+			return matchobj.group(0).replace('.', '_')
+
+		# All the looses parts are selected, Now set the origin to the center of mass
+		bpy.ops.object.origin_set( type = 'ORIGIN_GEOMETRY', center = 'BOUNDS' )
+
+		loosePartsObjects = bpy.context.selected_objects
+		for looseObj in loosePartsObjects:
+			looseObj.name = re.sub(r'\.[0-9]+$', replaceDot, looseObj.name)
+			looseObj.data.name = looseObj.name
+			collisionsBoxesList.append(looseObj)										# Append the loose part to the Collisions Boxes list
+
+		# Link the object data of all the looses parts
+		if collisionType == self.CollisionType.SPHERE or collisionType == self.CollisionType.BOX:
+			bpy.context.scene.objects.active = newCollisionBox
+			bpy.ops.object.make_links_data(type='OBDATA')
+
+		# If we are using sphere, set the scaling equal on each axis
+		if collisionType == self.CollisionType.SPHERE:
+			scaleVector = Vector( ( 1.0 / initObjScaleWS.x, 1.0 / initObjScaleWS.y, 1.0 / initObjScaleWS.z ) ) * scaleMult
 			for looseObj in loosePartsObjects:
-				looseObj.name = re.sub(r'\.[0-9]+$', replaceDot, looseObj.name)
-				looseObj.data.name = looseObj.name
-				collisionsBoxesList.append(looseObj)										# Append the loose part to the Collisions Boxes list
+				looseObj.scale = scaleVector
+		else:
+			newScale = Vector( ( scaleMult, scaleMult, scaleMult ) )
+			for looseObj in loosePartsObjects:
+				looseObj.scale = newScale
 
-			# Link the object data of all the looses parts
-			if collisionType == self.CollisionType.SPHERE or collisionType == self.CollisionType.BOX:
-				bpy.context.scene.objects.active = newCollisionBox
-				bpy.ops.object.make_links_data(type='OBDATA')
-
-			# If we are using sphere, set the scaling equal on each axis
-			if collisionType == self.CollisionType.SPHERE:
-				scaleVector = Vector( ( 1.0 / initObjScaleWS.x, 1.0 / initObjScaleWS.y, 1.0 / initObjScaleWS.z ) ) * scaleMult
-				for looseObj in loosePartsObjects:
-					looseObj.scale = scaleVector
-			else:
-				newScale = Vector( ( scaleMult, scaleMult, scaleMult ) )
-				for looseObj in loosePartsObjects:
-					looseObj.scale = newScale
-
-			# Everything is finished for this object, we can delete the objCopy
-			if collisionType != self.CollisionType.CONVEX:
-				self.setActive( objCopy )
-				bpy.ops.object.delete( use_global = False )
+		# Everything is finished for this object, we can delete the objCopy
+		if collisionType != self.CollisionType.CONVEX:
+			self.setActive( objCopy )
+			bpy.ops.object.delete( use_global = False )
 
 		self.set3DCursorPos( init3DCursorPosition )
 
