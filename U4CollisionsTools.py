@@ -243,51 +243,84 @@ class U4CollisionsTools( ):
 
 		# Duplicate the object to work on a copy
 		bpy.ops.object.duplicate( linked = False, mode = 'TRANSLATION' )
-		bpy.ops.object.join()
-		objCopy = self.getActive()											# Save the reference of the freshly created copy.
+		objListCopy = self.getSelectedObj()
+		objCopy = self.getActive()
+
+		# Remove constraints
+		for objCopyTmp in objListCopy:
+			for constraint in objCopyTmp.constraints:
+				if constraint.type == 'COPY_TRANSFORMS' or constraint.type == 'COPY_LOCATION':
+					objConstraint = objCopyTmp
+					foundedFinalObject = False
+					while foundedFinalObject == False:
+						noConstraint = False
+						for constraint2 in objConstraint.constraints:
+							if constraint2.type == constraint.type:
+								objConstraint = constraint2.target
+								noConstraint = True
+								break
+						if noConstraint == False:
+							foundedFinalObject = True
+					
+				objCopyTmp.location = objConstraint.location
+				objCopyTmp.constraints.remove( constraint )
+				
+
+		if len( objListCopy ) > 1:
+			# Apply visible modifiers
+			for objCopyTmp in objListCopy:
+				for modifier in objCopyTmp.modifiers:
+					if modifier.show_viewport:
+						self.setActive( objCopyTmp )
+						bpy.ops.object.modifier_apply( apply_as = 'DATA', modifier = modifier.name )
+
+			# Join all the copies
+			self.selectObjList( objListCopy )
+			bpy.context.scene.objects.active = objCopy								# Set 'objCopy' as the active object
+			bpy.ops.object.join()
+			objCopy = self.getActive()											# Save the reference of the freshly created copy.
+
 		objCopy.name = 'U4CT.tmp'
+
+		# Because we wants to work in World Space, clear parenting
+		bpy.ops.object.parent_clear( type = 'CLEAR_KEEP_TRANSFORM' )
+
 		bpy.ops.object.duplicate( linked = False, mode = 'TRANSLATION' )
 		objCopy2 = self.getActive()											# Save the reference of the freshly created copy.
 		objCopy2.name = 'U4CT.tmp2'
 
 
-
 		# Delete all the already existing Collisions Boxes for 'obj'
 		self.deleteCollisionsBox( obj )
 
-		# Ensure everything is enabled
-		objCopy.lock_location = ( False, False, False )
-		objCopy.lock_scale = ( False, False, False )
-		objCopy.lock_rotation = ( False, False, False )
 
-		# Remove constraints
-		for constraint in objCopy.constraints:
-			objCopy.constraints.remove( constraint )
-
-
-		# Because we wants to work in World Space, clear parenting
-		self.setActive( objCopy )
-		bpy.ops.object.parent_clear( type = 'CLEAR_KEEP_TRANSFORM' )
-
-
-		objCopy.rotation_euler = ( 0.0, 0.0, 0.0 )
-		
 		# Disable Mirror and Array for a correct Collision Box
+		self.setActive( objCopy )
 		for modifier in objCopy.modifiers:
+			if modifier.show_viewport == False:
+				bpy.ops.object.modifier_remove( modifier = modifier.name )	
 			if modifier.type == 'ARRAY':
-				if multipleOnArray:
+				if multipleOnArray == True:
 					modifier.show_viewport = False
 					modifier.use_merge_vertices = False
 				else:
 					bpy.ops.object.modifier_apply( apply_as = 'DATA', modifier = modifier.name )
 			elif modifier.type == 'MIRROR':
-				if multipleOnMirror:
+				if multipleOnMirror == True:
 					modifier.show_viewport = False
 					modifier.use_mirror_merge = False
 				else:
 					bpy.ops.object.modifier_apply( apply_as = 'DATA', modifier = modifier.name )
 			else:
 				bpy.ops.object.modifier_apply( apply_as = 'DATA', modifier = modifier.name )
+
+
+		objCopy.rotation_euler = ( 0.0, 0.0, 0.0 )
+
+		# Ensure everything is enabled
+		objCopy.lock_location = ( False, False, False )
+		objCopy.lock_scale = ( False, False, False )
+		objCopy.lock_rotation = ( False, False, False )
 
 		# Set the 3D cursor to the origin of our object
 		self.setActive( objCopy )
@@ -300,11 +333,11 @@ class U4CollisionsTools( ):
 		bpy.context.scene.update()										# Update the context to recompute the dimensions
 		initObjScaleWS = Vector( objCopy.scale )
 
-		
 
 		# We will use the 3D Cursor for placing the new box at the right position (Copying the position won't work in case of parenting)
 		bpy.ops.view3d.snap_cursor_to_selected()
 		relativePos = self.get3DCursorPos() - initObjPositionWS
+
 
 		if collisionType == self.CollisionType.BOX:
 			bpy.ops.mesh.primitive_cube_add()
@@ -349,7 +382,8 @@ class U4CollisionsTools( ):
 			decimateModifier.ratio = max( ( convexComplexity / ( numTriangles / area ), 1.0 / ( numTriangles / 12 ) ) )
 			bpy.ops.object.modifier_apply( apply_as = 'DATA', modifier = decimateModifier.name )
 
-		newCollisionBox = bpy.context.active_object							# Save the reference of the freshly created box.
+		newCollisionBox = self.getActive()							# Save the reference of the freshly created box.
+
 
 		# Set the visibility of the new collision box same as obj
 		newCollisionBox.layers = obj.layers
@@ -455,6 +489,7 @@ class U4CollisionsTools( ):
 			newScale = Vector( ( scaleMult, scaleMult, scaleMult ) )
 			for looseObj in loosePartsObjects:
 				looseObj.scale = newScale
+
 
 		# Everything is finished for this object, we can delete the objCopy
 		if collisionType != self.CollisionType.CONVEX:
